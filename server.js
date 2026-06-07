@@ -3,12 +3,56 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const JWT_SECRET = "trackflow_secret_key_change_in_production";
+const JWT_SECRET = process.env.JWT_SECRET || "trackflow_secret_key_change_in_production";
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_PASS = process.env.EMAIL_PASS;
+
+// ==============================
+// EMAIL TRANSPORTER
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: EMAIL_USER,
+    pass: EMAIL_PASS,
+  },
+});
+
+// ==============================
+// SEND OTP EMAIL
+const sendOTPEmail = async (toEmail, otp, type) => {
+  const subject = type === 'verify'
+    ? 'TrackFlow — Verify Your Email'
+    : 'TrackFlow — Reset Your Password';
+
+  const message = type === 'verify'
+    ? `Your verification code is: <b>${otp}</b><br>This code expires in 10 minutes.`
+    : `Your password reset code is: <b>${otp}</b><br>This code expires in 10 minutes.`;
+
+  await transporter.sendMail({
+    from: `"TrackFlow" <${EMAIL_USER}>`,
+    to: toEmail,
+    subject,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 400px; margin: auto;">
+        <h2 style="color: #3B82F6;">TrackFlow</h2>
+        <p>${message}</p>
+        <p style="color: #999; font-size: 12px;">If you didn't request this, ignore this email.</p>
+      </div>
+    `,
+  });
+};
+
+// ==============================
+// GENERATE 6 DIGIT OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
 
 // ==============================
 // VALIDATION HELPERS
@@ -33,11 +77,14 @@ mongoose.connect(
 // ==============================
 // USER SCHEMA
 const userSchema = new mongoose.Schema({
-  name:      { type: String, required: true, trim: true },
-  email:     { type: String, unique: true, sparse: true, lowercase: true, trim: true },
-  phone:     { type: String, unique: true, sparse: true, trim: true },
-  password:  { type: String, required: true },
-  createdAt: { type: Date, default: Date.now }
+  name:         { type: String, required: true, trim: true },
+  email:        { type: String, unique: true, sparse: true, lowercase: true, trim: true },
+  phone:        { type: String, unique: true, sparse: true, trim: true },
+  password:     { type: String, required: true },
+  isVerified:   { type: Boolean, default: false },
+  otp:          { type: String },
+  otpExpiresAt: { type: Date },
+  createdAt:    { type: Date, default: Date.now }
 });
 
 const User = mongoose.model('User', userSchema);
@@ -84,45 +131,33 @@ const authMiddleware = (req, res, next) => {
 };
 
 // ==============================
-// REGISTER
+// REGISTER — saves user, sends OTP
 app.post('/auth/register', async (req, res) => {
   try {
     const { name, email, phone, password } = req.body;
 
-    // Name check
     if (!name || name.trim().length < 2) {
       return res.status(400).json({ success: false, message: "Please enter your full name" });
     }
-
-    // Must have email OR phone
     if (!email && !phone) {
       return res.status(400).json({ success: false, message: "Please provide an email or phone number" });
     }
-
-    // Validate email if provided
     if (email && !isValidEmail(email)) {
       return res.status(400).json({ success: false, message: "Please enter a valid email address" });
     }
-
-    // Validate phone if provided
     if (phone && !isValidPhone(phone)) {
       return res.status(400).json({ success: false, message: "Please enter a valid phone number (10-15 digits)" });
     }
-
-    // Password length
     if (!password || password.length < 6) {
       return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
     }
 
-    // Check if email already exists
     if (email) {
       const existingEmail = await User.findOne({ email: email.toLowerCase() });
       if (existingEmail) {
         return res.status(400).json({ success: false, message: "This email is already registered" });
       }
     }
-
-    // Check if phone already exists
     if (phone) {
       const existingPhone = await User.findOne({ phone });
       if (existingPhone) {
@@ -131,23 +166,112 @@ app.post('/auth/register', async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const otp = generateOTP();
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     const user = new User({
       name: name.trim(),
       email: email ? email.toLowerCase().trim() : undefined,
       phone: phone ? phone.trim() : undefined,
-      password: hashedPassword
+      password: hashedPassword,
+      isVerified: false,
+      otp,
+      otpExpiresAt,
     });
 
     await user.save();
 
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
+    // Send OTP email if email provided
+    if (email) {
+      try {
+        await sendOTPEmail(email, otp, 'verify');
+      } catch (emailErr) {
+        // Don't fail registration if email fails
+        console.log("Email send failed:", emailErr.message);
+      }
+    }
 
     res.status(201).json({
+      success: true,
+      message: email
+        ? "Account created. Please check your email for the verification code."
+        : "Account created. Please verify your phone number.",
+      userId: user._id,
+      requiresVerification: true,
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==============================
+// VERIFY OTP
+app.post('/auth/verify-otp', async (req, res) => {
+  try {
+    const { userId, otp } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (user.isVerified) {
+      return res.status(400).json({ success: false, message: "Account already verified" });
+    }
+
+    if (user.otp !== otp) {
+      return res.status(400).json({ success: false, message: "Incorrect code. Please try again." });
+    }
+
+    if (new Date() > user.otpExpiresAt) {
+      return res.status(400).json({ success: false, message: "Code expired. Please request a new one." });
+    }
+
+    // Mark verified
+    user.isVerified = true;
+    user.otp = undefined;
+    user.otpExpiresAt = undefined;
+    await user.save();
+
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
+
+    res.json({
       success: true,
       token,
       user: { id: user._id, name: user.name, email: user.email, phone: user.phone }
     });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==============================
+// RESEND OTP
+app.post('/auth/resend-otp', async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (user.isVerified) {
+      return res.status(400).json({ success: false, message: "Account already verified" });
+    }
+
+    const otp = generateOTP();
+    user.otp = otp;
+    user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    if (user.email) {
+      await sendOTPEmail(user.email, otp, 'verify');
+    }
+
+    res.json({ success: true, message: "New code sent to your email" });
 
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -164,7 +288,6 @@ app.post('/auth/login', async (req, res) => {
       return res.status(400).json({ success: false, message: "Please fill in all fields" });
     }
 
-    // Find by email or phone
     const isEmail = isValidEmail(emailOrPhone);
     const user = isEmail
       ? await User.findOne({ email: emailOrPhone.toLowerCase().trim() })
@@ -177,6 +300,28 @@ app.post('/auth/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: "Incorrect password" });
+    }
+
+    // Check if verified
+    if (!user.isVerified) {
+      // Resend OTP
+      const otp = generateOTP();
+      user.otp = otp;
+      user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      await user.save();
+
+      if (user.email) {
+        try {
+          await sendOTPEmail(user.email, otp, 'verify');
+        } catch (e) {}
+      }
+
+      return res.status(403).json({
+        success: false,
+        requiresVerification: true,
+        userId: user._id,
+        message: "Please verify your email first. A new code has been sent."
+      });
     }
 
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
@@ -193,10 +338,75 @@ app.post('/auth/login', async (req, res) => {
 });
 
 // ==============================
+// FORGOT PASSWORD — send OTP
+app.post('/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || !isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: "Please enter a valid email address" });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      // Don't reveal if email exists
+      return res.json({ success: true, message: "If this email is registered, a reset code has been sent." });
+    }
+
+    const otp = generateOTP();
+    user.otp = otp;
+    user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    await sendOTPEmail(email, otp, 'reset');
+
+    res.json({ success: true, message: "Reset code sent to your email.", userId: user._id });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==============================
+// RESET PASSWORD
+app.post('/auth/reset-password', async (req, res) => {
+  try {
+    const { userId, otp, newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (user.otp !== otp) {
+      return res.status(400).json({ success: false, message: "Incorrect code. Please try again." });
+    }
+
+    if (new Date() > user.otpExpiresAt) {
+      return res.status(400).json({ success: false, message: "Code expired. Please request a new one." });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.otp = undefined;
+    user.otpExpiresAt = undefined;
+    await user.save();
+
+    res.json({ success: true, message: "Password reset successfully. Please login." });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==============================
 // GET CURRENT USER
 app.get('/auth/me', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select('-password');
+    const user = await User.findById(req.userId).select('-password -otp -otpExpiresAt');
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
@@ -207,8 +417,59 @@ app.get('/auth/me', authMiddleware, async (req, res) => {
 });
 
 // ==============================
-// TRIP ROUTES
+// UPDATE PROFILE
+app.put('/auth/profile', authMiddleware, async (req, res) => {
+  try {
+    const { name } = req.body;
 
+    if (!name || name.trim().length < 2) {
+      return res.status(400).json({ success: false, message: "Please enter a valid name" });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $set: { name: name.trim() } },
+      { new: true }
+    ).select('-password -otp -otpExpiresAt');
+
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==============================
+// CHANGE PASSWORD (logged in)
+app.put('/auth/change-password', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: "Please fill in all fields" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: "New password must be at least 6 characters" });
+    }
+
+    const user = await User.findById(req.userId);
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: "Current password is incorrect" });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.json({ success: true, message: "Password changed successfully" });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==============================
+// TRIP ROUTES
 app.post('/trips', authMiddleware, async (req, res) => {
   try {
     const trip = new Trip({ ...req.body, userId: req.userId, isValid: true, invalidReason: "" });
