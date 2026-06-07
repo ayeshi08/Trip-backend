@@ -339,18 +339,30 @@ app.post('/auth/login', async (req, res) => {
 
 // ==============================
 // FORGOT PASSWORD — send OTP
+// ==============================
+// FORGOT PASSWORD — supports email OR phone
 app.post('/auth/forgot-password', async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, phone } = req.body;
 
-    if (!email || !isValidEmail(email)) {
-      return res.status(400).json({ success: false, message: "Please enter a valid email address" });
+    if (!email && !phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide your email or phone number"
+      });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    // Find user by email or phone
+    const user = email
+      ? await User.findOne({ email: email.toLowerCase().trim() })
+      : await User.findOne({ phone: phone.trim() });
+
+    // Don't reveal if account exists or not
     if (!user) {
-      // Don't reveal if email exists
-      return res.json({ success: true, message: "If this email is registered, a reset code has been sent." });
+      return res.json({
+        success: true,
+        message: "If this account exists, a reset code has been sent."
+      });
     }
 
     const otp = generateOTP();
@@ -358,9 +370,20 @@ app.post('/auth/forgot-password', async (req, res) => {
     user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
 
-    await sendOTPEmail(email, otp, 'reset');
+    // Send email OTP if user has email
+    if (user.email) {
+      try {
+        await sendOTPEmail(user.email, otp, 'reset');
+      } catch (emailErr) {
+        console.log("Email send failed:", emailErr.message);
+      }
+    }
 
-    res.json({ success: true, message: "Reset code sent to your email.", userId: user._id });
+    res.json({
+      success: true,
+      message: "Reset code sent.",
+      userId: user._id
+    });
 
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
