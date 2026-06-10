@@ -181,13 +181,17 @@ app.post('/auth/register', async (req, res) => {
 
     await user.save();
 
-    // Send OTP email if email provided
+  // Send OTP email if email provided
     if (email) {
       try {
         await sendOTPEmail(email, otp, 'verify');
       } catch (emailErr) {
-        // Don't fail registration if email fails
-        console.log("Email send failed:", emailErr.message);
+        // Email failed — delete the user and return error
+        await User.findByIdAndDelete(user._id);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to send verification email. Please check your email address and try again."
+        });
       }
     }
 
@@ -195,9 +199,9 @@ app.post('/auth/register', async (req, res) => {
       success: true,
       message: email
         ? "Account created. Please check your email for the verification code."
-        : "Account created. Please verify your phone number.",
-      userId: user._id,
-      requiresVerification: true,
+        : "Account created successfully.",
+      userId: user._id.toString(),
+      requiresVerification: email ? true : false,
     });
 
   } catch (err) {
@@ -234,12 +238,21 @@ app.post('/auth/verify-otp', async (req, res) => {
     user.otpExpiresAt = undefined;
     await user.save();
 
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '30d' });
+  const token = jwt.sign(
+      { userId: user._id.toString() },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
 
     res.json({
       success: true,
       token,
-      user: { id: user._id, name: user.name, email: user.email, phone: user.phone }
+      user: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email || "",
+        phone: user.phone || ""
+      }
     });
 
   } catch (err) {
