@@ -21,8 +21,10 @@ const transporter = nodemailer.createTransport({
     user: EMAIL_USER,
     pass: EMAIL_PASS,
   },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 10000,
 });
-
 // ==============================
 // SEND OTP EMAIL
 const sendOTPEmail = async (toEmail, otp, type) => {
@@ -33,6 +35,9 @@ const sendOTPEmail = async (toEmail, otp, type) => {
   const message = type === 'verify'
     ? `Your verification code is: <b>${otp}</b><br>This code expires in 10 minutes.`
     : `Your password reset code is: <b>${otp}</b><br>This code expires in 10 minutes.`;
+
+  // Verify transporter connection first
+  await transporter.verify();
 
   await transporter.sendMail({
     from: `"TrackFlow" <${EMAIL_USER}>`,
