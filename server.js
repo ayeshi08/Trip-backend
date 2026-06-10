@@ -169,25 +169,11 @@ app.post('/auth/register', async (req, res) => {
     const otp = generateOTP();
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    const user = new User({
-      name: name.trim(),
-      email: email ? email.toLowerCase().trim() : undefined,
-      phone: phone ? phone.trim() : undefined,
-      password: hashedPassword,
-      isVerified: false,
-      otp,
-      otpExpiresAt,
-    });
-
-    await user.save();
-
-  // Send OTP email if email provided
+    // Send email FIRST before saving — if email fails, nothing gets saved
     if (email) {
       try {
-        await sendOTPEmail(email, otp, 'verify');
+        await sendOTPEmail(email.toLowerCase().trim(), otp, 'verify');
       } catch (emailErr) {
-        // Email failed — delete the user and return error
-        await User.findByIdAndDelete(user._id);
         return res.status(500).json({
           success: false,
           message: "Failed to send verification email. Please check your email address and try again."
@@ -195,10 +181,23 @@ app.post('/auth/register', async (req, res) => {
       }
     }
 
+    // Save user AFTER email sent successfully
+    const user = new User({
+      name: name.trim(),
+      email: email ? email.toLowerCase().trim() : undefined,
+      phone: phone ? phone.trim() : undefined,
+      password: hashedPassword,
+      isVerified: phone ? true : false, // phone users auto-verified, email users need OTP
+      otp: email ? otp : undefined,
+      otpExpiresAt: email ? otpExpiresAt : undefined,
+    });
+
+    await user.save();
+
     res.status(201).json({
       success: true,
       message: email
-        ? "Account created. Please check your email for the verification code."
+        ? "Verification code sent to your email."
         : "Account created successfully.",
       userId: user._id.toString(),
       requiresVerification: email ? true : false,
@@ -237,8 +236,7 @@ app.post('/auth/verify-otp', async (req, res) => {
     user.otp = undefined;
     user.otpExpiresAt = undefined;
     await user.save();
-
-  const token = jwt.sign(
+const token = jwt.sign(
       { userId: user._id.toString() },
       JWT_SECRET,
       { expiresIn: '30d' }
