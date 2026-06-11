@@ -38,18 +38,24 @@ const sendOTPEmail = async (toEmail, otp, type) => {
     : `Your password reset code is: <b>${otp}</b><br>This code expires in 10 minutes.`;
 
   // Verify transporter connection first
-await transporter.sendMail({
-   from: `"TrackFlow" <trackflowoficial@gmail.com>`,
-    to: toEmail,
-    subject,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 400px; margin: auto;">
-        <h2 style="color: #3B82F6;">TrackFlow</h2>
-        <p>${message}</p>
-        <p style="color: #999; font-size: 12px;">If you didn't request this, ignore this email.</p>
-      </div>
-    `,
-  });
+try {
+    const info = await transporter.sendMail({
+      from: `"TrackFlow" <trackflowoficial@gmail.com>`,
+      to: toEmail,
+      subject,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 400px; margin: auto;">
+          <h2 style="color: #3B82F6;">TrackFlow</h2>
+          <p>${message}</p>
+          <p style="color: #999; font-size: 12px;">If you didn't request this, ignore this email.</p>
+        </div>
+      `,
+    });
+    console.log("Email sent successfully:", info.messageId);
+  } catch (smtpErr) {
+    console.log("SMTP ERROR DETAILS:", smtpErr.message, smtpErr.code, smtpErr.response);
+    throw smtpErr;
+  }
 };
 
 // ==============================
