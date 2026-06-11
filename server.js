@@ -16,16 +16,13 @@ const EMAIL_PASS = process.env.EMAIL_PASS;
 // ==============================
 // EMAIL TRANSPORTER
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
+  host: 'smtp-relay.brevo.com',
+  port: 587,
+  secure: false,
   auth: {
     user: EMAIL_USER,
-    pass: EMAIL_PASS,
+    pass: process.env.BREVO_SMTP_KEY,
   },
-  connectionTimeout: 15000,
-  greetingTimeout: 15000,
-  socketTimeout: 15000,
 });
 // ==============================
 // SEND OTP EMAIL
@@ -39,9 +36,7 @@ const sendOTPEmail = async (toEmail, otp, type) => {
     : `Your password reset code is: <b>${otp}</b><br>This code expires in 10 minutes.`;
 
   // Verify transporter connection first
-  await transporter.verify();
-
-  await transporter.sendMail({
+await transporter.sendMail({
     from: `"TrackFlow" <${EMAIL_USER}>`,
     to: toEmail,
     subject,
