@@ -37,7 +37,7 @@ const sendOTPEmail = async (toEmail, otp, type) => {
 
   // Verify transporter connection first
 await transporter.sendMail({
-    from: `"TrackFlow" <${EMAIL_USER}>`,
+    from: `"TrackFlow" <trackflowOfficial@gmail.com>`,
     to: toEmail,
     subject,
     html: `
