@@ -20,7 +20,7 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false,
   auth: {
-    user: EMAIL_USER,
+    user: process.env.EMAIL_USER,
     pass: process.env.BREVO_SMTP_KEY,
   },
 });
@@ -37,7 +37,7 @@ const sendOTPEmail = async (toEmail, otp, type) => {
 
   // Verify transporter connection first
 await transporter.sendMail({
-    from: `"TrackFlow" <trackflowOfficial@gmail.com>`,
+   from: `"TrackFlow" <trackflowoficial@gmail.com>`,
     to: toEmail,
     subject,
     html: `
