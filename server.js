@@ -12,6 +12,7 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || "trackflow_secret_key_change_in_production";
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
+const BREVO_SMTP_KEY = process.env.BREVO_SMTP_KEY;
 
 // ==============================
 // EMAIL TRANSPORTER
@@ -20,10 +21,11 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false,
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.BREVO_SMTP_KEY,
+    user: EMAIL_USER,
+    pass: BREVO_SMTP_KEY,
   },
 });
+console.log("Email config:", EMAIL_USER ? "EMAIL_USER set" : "EMAIL_USER MISSING", BREVO_SMTP_KEY ? "BREVO_KEY set" : "BREVO_KEY MISSING");
 // ==============================
 // SEND OTP EMAIL
 const sendOTPEmail = async (toEmail, otp, type) => {
