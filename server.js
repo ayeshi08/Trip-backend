@@ -3,7 +3,10 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
+//const nodemailer = require('nodemailer');
+const axios = require('axios');
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+console.log("Brevo API key:", BREVO_API_KEY ? "SET" : "MISSING");
 
 const app = express();
 app.use(cors());
@@ -16,16 +19,16 @@ const BREVO_SMTP_KEY = process.env.BREVO_SMTP_KEY;
 
 // ==============================
 // EMAIL TRANSPORTER
-const transporter = nodemailer.createTransport({
-  host: 'smtp-relay.brevo.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: EMAIL_USER,
-    pass: BREVO_SMTP_KEY,
-  },
-});
-console.log("Email config:", EMAIL_USER ? "EMAIL_USER set" : "EMAIL_USER MISSING", BREVO_SMTP_KEY ? "BREVO_KEY set" : "BREVO_KEY MISSING");
+//const transporter = nodemailer.createTransport({
+//  host: 'smtp-relay.brevo.com',
+//  port: 587,
+//  secure: false,
+ // auth: {
+ //   user: EMAIL_USER,
+ //   pass: BREVO_SMTP_KEY,
+ // },
+//});
+//console.log("Email config:", EMAIL_USER ? "EMAIL_USER set" : "EMAIL_USER MISSING", BREVO_SMTP_KEY ? "BREVO_KEY set" : "BREVO_KEY MISSING");
 // ==============================
 // SEND OTP EMAIL
 const sendOTPEmail = async (toEmail, otp, type) => {
@@ -37,25 +40,32 @@ const sendOTPEmail = async (toEmail, otp, type) => {
     ? `Your verification code is: <b>${otp}</b><br>This code expires in 10 minutes.`
     : `Your password reset code is: <b>${otp}</b><br>This code expires in 10 minutes.`;
 
-  // Verify transporter connection first
-try {
-    const info = await transporter.sendMail({
-      from: `"TrackFlow" <trackflowoficial@gmail.com>`,
-      to: toEmail,
+  const response = await axios.post(
+    'https://api.brevo.com/v3/smtp/email',
+    {
+      sender: {
+        name: 'TrackFlow',
+        email: 'trackflowoficial@gmail.com',
+      },
+      to: [{ email: toEmail }],
       subject,
-      html: `
+      htmlContent: `
         <div style="font-family: Arial, sans-serif; max-width: 400px; margin: auto;">
           <h2 style="color: #3B82F6;">TrackFlow</h2>
           <p>${message}</p>
           <p style="color: #999; font-size: 12px;">If you didn't request this, ignore this email.</p>
         </div>
       `,
-    });
-    console.log("Email sent successfully:", info.messageId);
-  } catch (smtpErr) {
-    console.log("SMTP ERROR DETAILS:", smtpErr.message, smtpErr.code, smtpErr.response);
-    throw smtpErr;
-  }
+    },
+    {
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+ console.log("Email sent via API:", response.data.messageId);
 };
 
 // ==============================
