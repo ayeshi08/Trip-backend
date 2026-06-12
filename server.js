@@ -18,8 +18,8 @@ const BREVO_SMTP_KEY = process.env.BREVO_SMTP_KEY;
 // EMAIL TRANSPORTER
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 587,
-  secure: false,
+  port: 465,
+  secure: true,
   auth: {
     user: EMAIL_USER,
     pass: BREVO_SMTP_KEY,
