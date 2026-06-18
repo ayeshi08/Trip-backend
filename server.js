@@ -45,40 +45,8 @@ app.use(generalLimiter);
 
 // ==============================
 // SEND OTP EMAIL VIA BREVO API
-//const sendOTPEmail = async (toEmail, otp, type) => {
-//  const subject = type === 'verify'
-   // ? 'TrackFlow — Verify Your Email'
-   // : 'TrackFlow — Reset Your Password';
-
-//  const message = type === 'verify'
- //   ? `Your verification code is: <b>${otp}</b><br>This code expires in 10 minutes.`
-   // : `Your password reset code is: <b>${otp}</b><br>This code expires in 10 minutes.`;
-
-//  await axios.post(
-  //  'https://api.brevo.com/v3/smtp/email',
-    //{
-      //sender: { name: 'TrackFlow', email: EMAIL_USER },
-      //to: [{ email: toEmail }],
-      //subject,
-      //htmlContent: `
-        //<div style="font-family: Arial, sans-serif; max-width: 400px; margin: auto; padding: 24px; background: #f9f9f9; border-radius: 12px;">
-          //<h2 style="color: #3B82F6; margin-bottom: 8px;">TrackFlow</h2>
-          //<p style="font-size: 16px; color: #333;">${message}</p>
-          //<p style="color: #999; font-size: 12px; margin-top: 24px;">If you didn't request this, you can safely ignore this email.</p>
-        //</div>
-      //`,
-    //},
-    //{ headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' } }
-  //);
-//};
 const sendOTPEmail = async (toEmail, otp, type) => {
-  console.log("========== EMAIL DEBUG ==========");
-  console.log("TO:", toEmail);
-  console.log("TYPE:", type);
-  console.log("EMAIL_USER:", EMAIL_USER);
-  console.log("BREVO KEY EXISTS:", !!BREVO_API_KEY);
-
-  const subject = type === 'verify'
+ const subject = type === 'verify'
     ? 'TrackFlow — Verify Your Email'
     : 'TrackFlow — Reset Your Password';
 
@@ -86,41 +54,24 @@ const sendOTPEmail = async (toEmail, otp, type) => {
     ? `Your verification code is: <b>${otp}</b><br>This code expires in 10 minutes.`
     : `Your password reset code is: <b>${otp}</b><br>This code expires in 10 minutes.`;
 
-  try {
-    const response = await axios.post(
-      'https://api.brevo.com/v3/smtp/email',
-      {
-        sender: { name: 'TrackFlow', email: EMAIL_USER },
-        to: [{ email: toEmail }],
-        subject,
-        htmlContent: `<p>${message}</p>`,
-      },
-      {
-        headers: {
-          'api-key': BREVO_API_KEY,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    console.log("BREVO STATUS:", response.status);
-    console.log("BREVO RESPONSE:", response.data);
-    console.log("========== EMAIL SENT ==========");
-
-    return response.data;
-  } catch (err) {
-    console.log("========== BREVO ERROR ==========");
-
-    if (err.response) {
-      console.log("STATUS:", err.response.status);
-      console.log("DATA:", err.response.data);
-    } else {
-      console.log(err.message);
-    }
-
-    throw err;
-  }
+  await axios.post(
+    'https://api.brevo.com/v3/smtp/email',
+    {
+      sender: { name: 'TrackFlow', email: EMAIL_USER },
+      to: [{ email: toEmail }],
+      subject,
+      htmlContent: `
+        <div style="font-family: Arial, sans-serif; max-width: 400px; margin: auto; padding: 24px; background: #f9f9f9; border-radius: 12px;">
+          <h2 style="color: #3B82F6; margin-bottom: 8px;">TrackFlow</h2>
+          <p style="font-size: 16px; color: #333;">${message}</p>
+          <p style="color: #999; font-size: 12px; margin-top: 24px;">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+      `,
+    },
+    { headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' } }
+  );
 };
+
 
 // ==============================
 // GENERATE 6 DIGIT OTP
