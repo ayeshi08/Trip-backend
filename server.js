@@ -7,6 +7,7 @@ const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
+app.set('trust proxy', 1); // trust first proxy (Railway's)
 app.use(cors());
 app.use(express.json());
 
