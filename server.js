@@ -292,28 +292,31 @@ app.post('/auth/login', authLimiter, async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ success: false, message: "Incorrect password" });
 
-    if (!user.isVerified) {
 if (!user.isVerified) {
   const otp = generateOTP();
+
   user.otp = crypto
     .createHash('sha256')
     .update(otp)
     .digest('hex');
+
   user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
   await user.save();
-     // const otp = generateOTP();
-     // user.otp = otp;
-     // user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-     // await user.save();
-      if (user.email) {
-        try { await sendOTPEmail(user.email, otp, 'verify'); } catch (e) {}
-      }
-      return res.status(403).json({
-        success: false, requiresVerification: true,
-        userId: user._id.toString(),
-        message: "Please verify your email. A new code has been sent."
-      });
-    }
+
+  if (user.email) {
+    try {
+      await sendOTPEmail(user.email, otp, 'verify');
+    } catch (e) {}
+  }
+
+  return res.status(403).json({
+    success: false,
+    requiresVerification: true,
+    userId: user._id.toString(),
+    message: "Please verify your email. A new code has been sent."
+  });
+}
 
     const token = jwt.sign({ userId: user._id.toString() }, JWT_SECRET, { expiresIn: '30d' });
     res.json({
