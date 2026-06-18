@@ -4,6 +4,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
+const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
@@ -11,7 +12,13 @@ app.set('trust proxy', 1); // trust first proxy (Railway's)
 app.use(cors());
 app.use(express.json());
 
-const JWT_SECRET = process.env.JWT_SECRET || "trackflow_secret_key_change_in_production";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  console.error("FATAL: JWT_SECRET missing or too short");
+  process.exit(1);
+}
+//const JWT_SECRET = process.env.JWT_SECRET || "trackflow_secret_key_change_in_production";
 const EMAIL_USER = process.env.EMAIL_USER;
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
@@ -84,8 +91,9 @@ const isValidPhone = (phone) => /^\+?[0-9]{10,15}$/.test(phone);
 
 // ==============================
 // MONGODB CONNECTION
-mongoose.connect(
-  "mongodb://AdminAJ:Pakixtan.008@ac-lv7ymnq-shard-00-00.ukpscky.mongodb.net:27017,ac-lv7ymnq-shard-00-01.ukpscky.mongodb.net:27017,ac-lv7ymnq-shard-00-02.ukpscky.mongodb.net:27017/tripTracker?ssl=true&replicaSet=atlas-bji5vp-shard-0&authSource=admin"
+mongoose.connect(process.env.MONGODB_URI
+//mongoose.connect(
+ // "mongodb://AdminAJ:Pakixtan.008@ac-lv7ymnq-shard-00-00.ukpscky.mongodb.net:27017,ac-lv7ymnq-shard-00-01.ukpscky.mongodb.net:27017,ac-lv7ymnq-shard-00-02.ukpscky.mongodb.net:27017/tripTracker?ssl=true&replicaSet=atlas-bji5vp-shard-0&authSource=admin"
 ).then(() => console.log("MongoDB connected"))
  .catch(err => console.log("MongoDB connection error:", err.message));
 
@@ -166,8 +174,16 @@ app.post('/auth/register', authLimiter, async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const otp = generateOTP();
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+const otp = generateOTP();
+
+const otpHash = crypto
+  .createHash('sha256')
+  .update(otp)
+  .digest('hex');
+
+const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+   // const otp = generateOTP();
+   // const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     // Send email FIRST — if it fails, don't save user
     if (email) {
@@ -184,7 +200,8 @@ app.post('/auth/register', authLimiter, async (req, res) => {
       phone: phone ? phone.trim() : undefined,
       password: hashedPassword,
       isVerified: phone ? true : false,
-      otp: email ? otp : undefined,
+otp: email ? otpHash : undefined,
+    //  otp: email ? otp : undefined,
       otpExpiresAt: email ? otpExpiresAt : undefined,
     });
     await user.save();
@@ -208,7 +225,13 @@ app.post('/auth/verify-otp', authLimiter, async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
     if (user.isVerified) return res.status(400).json({ success: false, message: "Account already verified" });
-    if (user.otp !== otp) return res.status(400).json({ success: false, message: "Incorrect code. Please try again." });
+const incomingHash = crypto
+  .createHash('sha256')
+  .update(otp)
+  .digest('hex');
+
+if (user.otp !== incomingHash) return res.status(400).json({success: false, message: "Incorrect code. Please try again." });
+    //if (user.otp !== otp) return res.status(400).json({ success: false, message: "Incorrect code. Please try again." });
     if (new Date() > user.otpExpiresAt) return res.status(400).json({ success: false, message: "Code expired. Please request a new one." });
 
     user.isVerified = true;
@@ -234,9 +257,13 @@ app.post('/auth/resend-otp', otpLimiter, async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
     if (user.isVerified) return res.status(400).json({ success: false, message: "Account already verified" });
-
-    const otp = generateOTP();
-    user.otp = otp;
+const otp = generateOTP();
+user.otp = crypto
+  .createHash('sha256')
+  .update(otp)
+  .digest('hex');
+   // const otp = generateOTP();
+  //  user.otp = otp;
     user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
 
@@ -266,10 +293,18 @@ app.post('/auth/login', authLimiter, async (req, res) => {
     if (!isMatch) return res.status(401).json({ success: false, message: "Incorrect password" });
 
     if (!user.isVerified) {
-      const otp = generateOTP();
-      user.otp = otp;
-      user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-      await user.save();
+if (!user.isVerified) {
+  const otp = generateOTP();
+  user.otp = crypto
+    .createHash('sha256')
+    .update(otp)
+    .digest('hex');
+  user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  await user.save();
+     // const otp = generateOTP();
+     // user.otp = otp;
+     // user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+     // await user.save();
       if (user.email) {
         try { await sendOTPEmail(user.email, otp, 'verify'); } catch (e) {}
       }
@@ -304,8 +339,13 @@ app.post('/auth/forgot-password', otpLimiter, async (req, res) => {
 
     if (!user) return res.json({ success: true, message: "If this account exists, a reset code has been sent." });
 
-    const otp = generateOTP();
-    user.otp = otp;
+const otp = generateOTP();
+user.otp = crypto
+  .createHash('sha256')
+  .update(otp)
+  .digest('hex');
+   // const otp = generateOTP();
+  //  user.otp = otp;
     user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
 
@@ -329,7 +369,14 @@ app.post('/auth/reset-password', authLimiter, async (req, res) => {
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
-    if (user.otp !== otp) return res.status(400).json({ success: false, message: "Incorrect code. Please try again." });
+const incomingHash = crypto
+  .createHash('sha256')
+  .update(otp)
+  .digest('hex');
+
+if (user.otp !== incomingHash)
+   // if (user.otp !== otp)
+ return res.status(400).json({ success: false, message: "Incorrect code. Please try again." });
     if (new Date() > user.otpExpiresAt) return res.status(400).json({ success: false, message: "Code expired. Please request a new one." });
 
     user.password = await bcrypt.hash(newPassword, 10);
