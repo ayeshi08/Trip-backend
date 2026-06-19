@@ -8,17 +8,44 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
-app.set('trust proxy', 1); // trust first proxy (Railway's)
-app.use(cors());
-app.use(express.json());
 
+/* ======================
+   TRUST PROXY (Railway/Render)
+====================== */
+app.set('trust proxy', 1);
+
+/* ======================
+   BODY LIMIT PROTECTION
+====================== */
+app.use(express.json({ limit: '100kb' }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+
+/* ======================
+   CORS (FOR FLUTTER MOBILE APP)
+====================== */
+app.use(cors()); // simple & correct for mobile apps
+
+/* ======================
+   RATE LIMIT (IMPORTANT)
+====================== */
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100
+}));
+
+/* ======================
+   JWT SECURITY CHECK
+====================== */
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
   console.error("FATAL: JWT_SECRET missing or too short");
   process.exit(1);
 }
-//const JWT_SECRET = process.env.JWT_SECRET || "trackflow_secret_key_change_in_production";
+
+/* ======================
+   ENV VARIABLES
+====================== */
 const EMAIL_USER = process.env.EMAIL_USER;
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
@@ -152,9 +179,33 @@ const authMiddleware = (req, res, next) => {
 app.post('/auth/register', authLimiter, async (req, res) => {
   try {
     const { name, email, phone, password } = req.body;
+ if (!name || !password) {
+  return res.status(400).json({
+    success: false,
+    message: "Missing required fields"
+  });
+}
+  if (!name || name.trim().length < 2) {
+  return res.status(400).json({
+    success: false,
+    message: "Please enter your full name"
+  });
+}
 
-    if (!name || name.trim().length < 2)
-      return res.status(400).json({ success: false, message: "Please enter your full name" });
+if (name.length > 100) {
+  return res.status(400).json({
+    success: false,
+    message: "Name too long"
+  });
+}
+
+if (password.length > 128) {
+  return res.status(400).json({
+    success: false,
+    message: "Password too long"
+  });
+}
+
     if (!email && !phone)
       return res.status(400).json({ success: false, message: "Please provide an email or phone number" });
     if (email && !isValidEmail(email))
@@ -279,8 +330,15 @@ user.otp = crypto
 app.post('/auth/login', authLimiter, async (req, res) => {
   try {
     const { emailOrPhone, password } = req.body;
+
     if (!emailOrPhone || !password)
       return res.status(400).json({ success: false, message: "Please fill in all fields" });
+  if (password.length > 128) {
+    return res.status(400).json({
+      success: false,
+      message: "Password too long"
+    });
+  }
 
     const isEmail = isValidEmail(emailOrPhone);
     const user = isEmail
@@ -447,11 +505,50 @@ app.put('/auth/change-password', authMiddleware, async (req, res) => {
 
 // ==============================
 // TRIP ROUTES
+// ==============================
+// CREATE TRIP (OPTIONAL - can remove later)
 app.post('/trips', authMiddleware, async (req, res) => {
   try {
-    const trip = new Trip({ ...req.body, userId: req.userId, isValid: true, invalidReason: "" });
+    const {
+      startTime,
+      endTime,
+      distance,
+      duration,
+      avgSpeed,
+      startLat,
+      startLng,
+      endLat,
+      endLng,
+      route
+    } = req.body;
+
+    if (route && route.length > 50000) {
+      return res.status(400).json({
+        success: false,
+        message: "Route too large"
+      });
+    }
+
+    const trip = new Trip({
+      userId: req.userId,
+      startTime,
+      endTime,
+      distance,
+      duration,
+      avgSpeed,
+      startLat,
+      startLng,
+      endLat,
+      endLng,
+      route,
+      isValid: true,
+      invalidReason: ""
+    });
+
     await trip.save();
+
     res.status(201).json({ success: true, trip });
+
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error." });
   }
@@ -459,28 +556,127 @@ app.post('/trips', authMiddleware, async (req, res) => {
 
 app.get('/trips', authMiddleware, async (req, res) => {
   try {
-    const trips = await Trip.find({ userId: req.userId }).sort({ createdAt: -1 });
+    const trips = await Trip.find({ userId: req.userId })
+      .sort({ createdAt: -1 });
+
     res.json(trips);
+
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error." });
   }
 });
 
-app.put('/trips/:id', authMiddleware, async (req, res) => {
+app.post('/trips/start', authMiddleware, async (req, res) => {
   try {
-    const data = req.body;
-    const isValidTrip = data.route && data.route.length > 1 && data.distance && data.distance > 0;
-    const updatedTrip = await Trip.findOneAndUpdate(
-      { _id: req.params.id, userId: req.userId },
-      { $set: { ...data, isValid: isValidTrip, invalidReason: isValidTrip ? "" : "No movement or invalid update" } },
-      { new: true }
-    );
-    if (!updatedTrip) return res.status(404).json({ success: false, message: "Trip not found" });
-    res.json({ success: true, trip: updatedTrip });
+    const trip = new Trip({
+      userId: req.userId,
+      startTime: new Date(),
+      status: 'active',
+      isLocked: false,
+      route: [],
+      distance: 0
+    });
+
+    await trip.save();
+
+    res.json({ success: true, trip });
+
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error." });
   }
 });
+
+app.post('/trips/:id/pause', authMiddleware, async (req, res) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      userId: req.userId
+    });
+
+    if (!trip) {
+      return res.status(404).json({ message: "Trip not found" });
+    }
+
+    if (trip.isLocked) {
+      return res.status(403).json({ message: "Trip is locked" });
+    }
+
+    if (trip.status !== "active") {
+      return res.status(400).json({ message: "Only active trip can be paused" });
+    }
+
+    trip.status = 'paused';
+    await trip.save();
+
+    res.json({ success: true, trip });
+
+  } catch (err) {
+    res.status(500).json({ message: "Server error." });
+  }
+});
+
+app.post('/trips/:id/resume', authMiddleware, async (req, res) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      userId: req.userId
+    });
+
+    if (!trip) {
+      return res.status(404).json({ message: "Trip not found" });
+    }
+
+    if (trip.isLocked) {
+      return res.status(403).json({ message: "Trip is locked" });
+    }
+
+    if (trip.status !== "paused") {
+      return res.status(400).json({ message: "Only paused trip can be resumed" });
+    }
+
+    trip.status = 'active';
+    await trip.save();
+
+    res.json({ success: true, trip });
+
+  } catch (err) {
+    res.status(500).json({ message: "Server error." });
+  }
+});
+
+
+app.post('/trips/:id/stop', authMiddleware, async (req, res) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      userId: req.userId
+    });
+
+    if (!trip) {
+      return res.status(404).json({ message: "Trip not found" });
+    }
+
+    if (trip.isLocked) {
+      return res.status(400).json({ message: "Already stopped" });
+    }
+
+    trip.status = 'stopped';
+    trip.isLocked = true;
+    trip.endTime = new Date();
+
+    await trip.save();
+
+    res.json({ success: true, trip });
+
+  } catch (err) {
+    res.status(500).json({ message: "Server error." });
+  }
+});
+
+
+
+
+
 
 app.delete('/trips/:id', authMiddleware, async (req, res) => {
   try {
