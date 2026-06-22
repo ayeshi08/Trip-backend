@@ -490,6 +490,7 @@ app.put('/auth/change-password', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: "Please fill in all fields" });
     if (newPassword.length < 6)
       return res.status(400).json({ success: false, message: "New password must be at least 6 characters" });
+if (newPassword.length > 128) return res.status(400).json({ success: false, message: "Password too long" });
 
     const user = await User.findById(req.userId);
     const isMatch = await bcrypt.compare(currentPassword, user.password);
@@ -510,45 +511,26 @@ app.put('/auth/change-password', authMiddleware, async (req, res) => {
 app.post('/trips', authMiddleware, async (req, res) => {
   try {
     const {
-      startTime,
-      endTime,
-      distance,
-      duration,
-      avgSpeed,
-      startLat,
-      startLng,
-      endLat,
-      endLng,
-      route
+      startTime, endTime, distance, duration, avgSpeed,
+      startLat, startLng, endLat, endLng, route
     } = req.body;
 
+    if (!startTime || !endTime) {
+      return res.status(400).json({ success: false, message: "Missing trip times" });
+    }
     if (route && route.length > 50000) {
-      return res.status(400).json({
-        success: false,
-        message: "Route too large"
-      });
+      return res.status(400).json({ success: false, message: "Route too large" });
     }
 
     const trip = new Trip({
       userId: req.userId,
-      startTime,
-      endTime,
-      distance,
-      duration,
-      avgSpeed,
-      startLat,
-      startLng,
-      endLat,
-      endLng,
-      route,
+      startTime, endTime, distance, duration, avgSpeed,
+      startLat, startLng, endLat, endLng, route,
       isValid: true,
       invalidReason: ""
     });
-
     await trip.save();
-
     res.status(201).json({ success: true, trip });
-
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error." });
   }
