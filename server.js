@@ -6,8 +6,10 @@ const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
-
+const helmet = require('helmet');
 const app = express();
+
+app.use(helmet());
 
 /* ======================
    TRUST PROXY (Railway/Render)
@@ -119,8 +121,6 @@ const isValidPhone = (phone) => /^\+?[0-9]{10,15}$/.test(phone);
 // ==============================
 // MONGODB CONNECTION
 mongoose.connect(process.env.MONGODB_URI
-//mongoose.connect(
- // "mongodb://AdminAJ:Pakixtan.008@ac-lv7ymnq-shard-00-00.ukpscky.mongodb.net:27017,ac-lv7ymnq-shard-00-01.ukpscky.mongodb.net:27017,ac-lv7ymnq-shard-00-02.ukpscky.mongodb.net:27017/tripTracker?ssl=true&replicaSet=atlas-bji5vp-shard-0&authSource=admin"
 ).then(() => console.log("MongoDB connected"))
  .catch(err => console.log("MongoDB connection error:", err.message));
 
@@ -504,10 +504,21 @@ if (newPassword.length > 128) return res.status(400).json({ success: false, mess
   }
 });
 
+
+// ==============================
+// DELETE ACCOUNT
+app.delete('/auth/delete-account', authMiddleware, async (req, res) => {
+  try {
+    await Trip.deleteMany({ userId: req.userId });
+    await User.findByIdAndDelete(req.userId);
+    res.json({ success: true, message: "Account deleted" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
 // ==============================
 // TRIP ROUTES
-// ==============================
-// CREATE TRIP (OPTIONAL - can remove later)
 app.post('/trips', authMiddleware, async (req, res) => {
   try {
     const {
@@ -547,116 +558,6 @@ app.get('/trips', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, message: "Server error." });
   }
 });
-
-app.post('/trips/start', authMiddleware, async (req, res) => {
-  try {
-    const trip = new Trip({
-      userId: req.userId,
-      startTime: new Date(),
-      status: 'active',
-      isLocked: false,
-      route: [],
-      distance: 0
-    });
-
-    await trip.save();
-
-    res.json({ success: true, trip });
-
-  } catch (err) {
-    res.status(500).json({ success: false, message: "Server error." });
-  }
-});
-
-app.post('/trips/:id/pause', authMiddleware, async (req, res) => {
-  try {
-    const trip = await Trip.findOne({
-      _id: req.params.id,
-      userId: req.userId
-    });
-
-    if (!trip) {
-      return res.status(404).json({ message: "Trip not found" });
-    }
-
-    if (trip.isLocked) {
-      return res.status(403).json({ message: "Trip is locked" });
-    }
-
-    if (trip.status !== "active") {
-      return res.status(400).json({ message: "Only active trip can be paused" });
-    }
-
-    trip.status = 'paused';
-    await trip.save();
-
-    res.json({ success: true, trip });
-
-  } catch (err) {
-    res.status(500).json({ message: "Server error." });
-  }
-});
-
-app.post('/trips/:id/resume', authMiddleware, async (req, res) => {
-  try {
-    const trip = await Trip.findOne({
-      _id: req.params.id,
-      userId: req.userId
-    });
-
-    if (!trip) {
-      return res.status(404).json({ message: "Trip not found" });
-    }
-
-    if (trip.isLocked) {
-      return res.status(403).json({ message: "Trip is locked" });
-    }
-
-    if (trip.status !== "paused") {
-      return res.status(400).json({ message: "Only paused trip can be resumed" });
-    }
-
-    trip.status = 'active';
-    await trip.save();
-
-    res.json({ success: true, trip });
-
-  } catch (err) {
-    res.status(500).json({ message: "Server error." });
-  }
-});
-
-
-app.post('/trips/:id/stop', authMiddleware, async (req, res) => {
-  try {
-    const trip = await Trip.findOne({
-      _id: req.params.id,
-      userId: req.userId
-    });
-
-    if (!trip) {
-      return res.status(404).json({ message: "Trip not found" });
-    }
-
-    if (trip.isLocked) {
-      return res.status(400).json({ message: "Already stopped" });
-    }
-
-    trip.status = 'stopped';
-    trip.isLocked = true;
-    trip.endTime = new Date();
-
-    await trip.save();
-
-    res.json({ success: true, trip });
-
-  } catch (err) {
-    res.status(500).json({ message: "Server error." });
-  }
-});
-
-
-
 
 
 
