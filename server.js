@@ -27,13 +27,6 @@ app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 ====================== */
 app.use(cors()); // simple & correct for mobile apps
 
-/* ======================
-   RATE LIMIT (IMPORTANT)
-====================== */
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100
-}));
 
 /* ======================
    JWT SECURITY CHECK
@@ -123,7 +116,9 @@ const isValidPhone = (phone) => /^\+?[0-9]{10,15}$/.test(phone);
 mongoose.connect(process.env.MONGODB_URI
 ).then(() => console.log("MongoDB connected"))
  .catch(err => console.log("MongoDB connection error:", err.message));
-
+// ==============================
+// HEALTH CHECK
+app.get('/', (req, res) => res.json({ status: "ok" }));
 // ==============================
 // USER SCHEMA
 const userSchema = new mongoose.Schema({
@@ -582,6 +577,18 @@ app.get('/trips/week', authMiddleware, async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error." });
   }
+});
+// ==============================
+// 404 — no matching route
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: "Not found" });
+});
+
+// ==============================
+// GLOBAL ERROR HANDLER
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ success: false, message: "Server error." });
 });
 
 app.listen(3000, "0.0.0.0", () => console.log("Server running on port 3000"));
