@@ -129,6 +129,7 @@ const userSchema = new mongoose.Schema({
   isVerified:   { type: Boolean, default: false },
   otp:          { type: String },
   otpExpiresAt: { type: Date },
+ passwordChangedAt: { type: Date, default: Date.now },
   createdAt:    { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
@@ -155,13 +156,23 @@ const Trip = mongoose.model('Trip', tripSchema);
 
 // ==============================
 // AUTH MIDDLEWARE
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   if (!authHeader) return res.status(401).json({ success: false, message: "No token provided" });
   const token = authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ success: false, message: "Invalid token format" });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+
+    // NEW: reject token if password changed after it was issued
+    const user = await User.findById(decoded.userId).select('passwordChangedAt');
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Session expired. Please login again." });
+    }
+    if (user.passwordChangedAt && decoded.issuedAt < user.passwordChangedAt.getTime()) {
+      return res.status(401).json({ success: false, message: "Password was changed. Please login again." });
+    }
+
     req.userId = decoded.userId;
     next();
   } catch (err) {
@@ -285,7 +296,11 @@ if (user.otp !== incomingHash) return res.status(400).json({success: false, mess
     user.otpExpiresAt = undefined;
     await user.save();
 
-    const token = jwt.sign({ userId: user._id.toString() }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign(
+  { userId: user._id.toString(), issuedAt: Date.now() },
+  JWT_SECRET,
+  { expiresIn: '30d' }
+);
     res.json({
       success: true, token,
       user: { id: user._id.toString(), name: user.name, email: user.email || "", phone: user.phone || "" }
@@ -371,7 +386,11 @@ if (!user.isVerified) {
   });
 }
 
-    const token = jwt.sign({ userId: user._id.toString() }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign(
+  { userId: user._id.toString(), issuedAt: Date.now() },
+  JWT_SECRET,
+  { expiresIn: '30d' }
+);
     res.json({
       success: true, token,
       user: { id: user._id.toString(), name: user.name, email: user.email || "", phone: user.phone || "" }
@@ -435,10 +454,11 @@ if (user.otp !== incomingHash)
  return res.status(400).json({ success: false, message: "Incorrect code. Please try again." });
     if (new Date() > user.otpExpiresAt) return res.status(400).json({ success: false, message: "Code expired. Please request a new one." });
 
-    user.password = await bcrypt.hash(newPassword, 10);
-    user.otp = undefined;
-    user.otpExpiresAt = undefined;
-    await user.save();
+  user.password = await bcrypt.hash(newPassword, 10);
+user.otp = undefined;
+user.otpExpiresAt = undefined;
+user.passwordChangedAt = new Date();
+await user.save();
 
     res.json({ success: true, message: "Password reset successfully. Please login." });
   } catch (err) {
@@ -492,7 +512,8 @@ if (newPassword.length > 128) return res.status(400).json({ success: false, mess
     if (!isMatch) return res.status(400).json({ success: false, message: "Current password is incorrect" });
 
     user.password = await bcrypt.hash(newPassword, 10);
-    await user.save();
+user.passwordChangedAt = new Date();
+await user.save();
     res.json({ success: true, message: "Password changed successfully" });
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error. Please try again." });
