@@ -274,7 +274,7 @@ passwordChangedAt: new Date(),
     console.error("REGISTER ERROR:", err); // TEMPORARY — remove after debugging
     res.status(500).json({ success: false, message: "Server error. Please try again." });
   }
-
+});
 // ==============================
 // VERIFY OTP
 app.post('/auth/verify-otp', authLimiter, async (req, res) => {
