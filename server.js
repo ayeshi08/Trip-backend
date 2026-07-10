@@ -129,7 +129,7 @@ const userSchema = new mongoose.Schema({
   isVerified:   { type: Boolean, default: false },
   otp:          { type: String },
   otpExpiresAt: { type: Date },
- passwordChangedAt: { type: Date, default: Date.now },
+passwordChangedAt: { type: Date },
   createdAt:    { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
@@ -260,6 +260,7 @@ const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 otp: email ? otpHash : undefined,
     //  otp: email ? otp : undefined,
       otpExpiresAt: email ? otpExpiresAt : undefined,
+passwordChangedAt: new Date(), 
     });
     await user.save();
 
