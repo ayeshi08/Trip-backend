@@ -270,10 +270,10 @@ passwordChangedAt: new Date(),
       userId: user._id.toString(),
       requiresVerification: email ? true : false,
     });
-  } catch (err) {
+} catch (err) {
+    console.error("REGISTER ERROR:", err); // TEMPORARY — remove after debugging
     res.status(500).json({ success: false, message: "Server error. Please try again." });
   }
-});
 
 // ==============================
 // VERIFY OTP
