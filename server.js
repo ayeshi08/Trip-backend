@@ -259,7 +259,7 @@ passwordChangedAt: new Date(),
   requiresVerification: true,
 });
 } catch (err) {
-    console.error("REGISTER ERROR:", err); // TEMPORARY — remove after debugging
+    console.error(err);
     res.status(500).json({ success: false, message: "Server error. Please try again." });
   }
 });
