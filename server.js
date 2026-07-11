@@ -212,23 +212,14 @@ if (password.length > 128) {
   });
 }
 
-    if (!email && !phone)
-      return res.status(400).json({ success: false, message: "Please provide an email or phone number" });
-    if (email && !isValidEmail(email))
-      return res.status(400).json({ success: false, message: "Please enter a valid email address" });
-    if (phone && !isValidPhone(phone))
-      return res.status(400).json({ success: false, message: "Please enter a valid phone number (10-15 digits)" });
+    if (!email)
+  return res.status(400).json({ success: false, message: "Please provide an email address" });
+if (!isValidEmail(email))
+  return res.status(400).json({ success: false, message: "Please enter a valid email address" });
     if (!password || password.length < 6)
       return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
-
-    if (email) {
-      const existingEmail = await User.findOne({ email: email.toLowerCase() });
-      if (existingEmail) return res.status(400).json({ success: false, message: "This email is already registered" });
-    }
-    if (phone) {
-      const existingPhone = await User.findOne({ phone });
-      if (existingPhone) return res.status(400).json({ success: false, message: "This phone number is already registered" });
-    }
+const existingEmail = await User.findOne({ email: email.toLowerCase() });
+if (existingEmail) return res.status(400).json({ success: false, message: "This email is already registered" });
 
     const hashedPassword = await bcrypt.hash(password, 10);
 const otp = generateOTP();
@@ -243,18 +234,15 @@ const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
    // const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     // Send email FIRST — if it fails, don't save user
-    if (email) {
-      try {
-        await sendOTPEmail(email.toLowerCase().trim(), otp, 'verify');
-      } catch (emailErr) {
-        return res.status(500).json({ success: false, message: "Failed to send verification email. Please check your email and try again." });
-      }
-    }
+ try {
+  await sendOTPEmail(email.toLowerCase().trim(), otp, 'verify');
+} catch (emailErr) {
+  return res.status(500).json({ success: false, message: "Failed to send verification email. Please check your email and try again." });
+}
 
     const user = new User({
       name: name.trim(),
       email: email ? email.toLowerCase().trim() : undefined,
-      phone: phone ? phone.trim() : undefined,
       password: hashedPassword,
       isVerified: phone ? true : false,
 otp: email ? otpHash : undefined,
@@ -264,12 +252,12 @@ passwordChangedAt: new Date(),
     });
     await user.save();
 
-    res.status(201).json({
-      success: true,
-      message: email ? "Verification code sent to your email." : "Account created successfully.",
-      userId: user._id.toString(),
-      requiresVerification: email ? true : false,
-    });
+   res.status(201).json({
+  success: true,
+  message: "Verification code sent to your email.",
+  userId: user._id.toString(),
+  requiresVerification: true,
+});
 } catch (err) {
     console.error("REGISTER ERROR:", err); // TEMPORARY — remove after debugging
     res.status(500).json({ success: false, message: "Server error. Please try again." });
@@ -340,23 +328,17 @@ user.otp = crypto
 // LOGIN
 app.post('/auth/login', authLimiter, async (req, res) => {
   try {
-    const { emailOrPhone, password } = req.body;
-
-    if (!emailOrPhone || !password)
+    const { email, password } = req.body;
+    if (!email || !password)
       return res.status(400).json({ success: false, message: "Please fill in all fields" });
-  if (password.length > 128) {
-    return res.status(400).json({
-      success: false,
-      message: "Password too long"
-    });
-  }
-
-    const isEmail = isValidEmail(emailOrPhone);
-    const user = isEmail
-      ? await User.findOne({ email: emailOrPhone.toLowerCase().trim() })
-      : await User.findOne({ phone: emailOrPhone.trim() });
-
-    if (!user) return res.status(401).json({ success: false, message: "No account found with this email or phone" });
+    if (password.length > 128) {
+      return res.status(400).json({ success: false, message: "Password too long" });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: "Please enter a valid email address" });
+    }
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) return res.status(401).json({ success: false, message: "No account found with this email" });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ success: false, message: "Incorrect password" });
@@ -405,13 +387,13 @@ if (!user.isVerified) {
 // FORGOT PASSWORD
 app.post('/auth/forgot-password', otpLimiter, async (req, res) => {
   try {
-    const { email, phone } = req.body;
-    if (!email && !phone)
-      return res.status(400).json({ success: false, message: "Please provide your email or phone number" });
-
-    const user = email
-      ? await User.findOne({ email: email.toLowerCase().trim() })
-      : await User.findOne({ phone: phone.trim() });
+    const { email } = req.body;
+    if (!email)
+      return res.status(400).json({ success: false, message: "Please provide your email address" });
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: "Please enter a valid email address" });
+    }
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
 
     if (!user) return res.json({ success: true, message: "If this account exists, a reset code has been sent." });
 
